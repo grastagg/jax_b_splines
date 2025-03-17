@@ -5,24 +5,27 @@ from functools import partial
 import numpy as np
 
 from bspline.matrix_evaluation import (
-    matrix_bspline_evaluation_for_dataset,
-    matrix_bspline_derivative_evaluation_for_dataset,
+    matrix_bspline_evaluation_at_times,
+    matrix_bspline_derivative_evaluation_at_times,
 )
 
 
-def evaluate_spline(controlPoints, knotPoints, numSamplesPerInterval):
+def evaluate_spline(times, controlPoints, knotPoints, spline_order):
     knotPoints = knotPoints.reshape((-1,))
-    return matrix_bspline_evaluation_for_dataset(
-        controlPoints.T, knotPoints, numSamplesPerInterval
+    return matrix_bspline_evaluation_at_times(
+        times, controlPoints.T, knotPoints, spline_order
     )
 
 
 def evaluate_spline_derivative(
-    controlPoints, knotPoints, splineOrder, derivativeOrder, numSamplesPerInterval
+    times,
+    derivativeOrder,
+    controlPoints,
+    knotPoints,
+    splineOrder,
 ):
-    scaleFactor = knotPoints[-splineOrder - 1] / (len(knotPoints) - 2 * splineOrder - 1)
-    return matrix_bspline_derivative_evaluation_for_dataset(
-        derivativeOrder, scaleFactor, controlPoints.T, knotPoints, numSamplesPerInterval
+    return matrix_bspline_derivative_evaluation_at_times(
+        times, derivativeOrder, controlPoints.T, knotPoints, splineOrder
     )
 
 
@@ -41,43 +44,43 @@ def create_unclamped_knot_points(t0, tf, numControlPoints, splineOrder):
     return knots
 
 
-@partial(jit, static_argnums=(2, 3))
-def get_spline_velocity(controlPoints, tf, splineOrder, numSamplesPerInterval):
+@partial(jit, static_argnums=(3,))
+def get_spline_velocity(times, controlPoints, tf, splineOrder):
     numControlPoints = int(len(controlPoints) / 2)
     controlPoints = controlPoints.reshape((numControlPoints, 2))
     knotPoints = create_unclamped_knot_points(0, tf, numControlPoints, splineOrder)
     out_d1 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
+        times, 1, controlPoints, knotPoints, splineOrder
     )
     return jnp.linalg.norm(out_d1, axis=1)
 
 
-@partial(jit, static_argnums=(2, 3))
-def get_spline_turn_rate(controlPoints, tf, splineOrder, numSamplesPerInterval):
+@partial(jit, static_argnums=(3,))
+def get_spline_turn_rate(times, controlPoints, tf, splineOrder):
     numControlPoints = int(len(controlPoints) / 2)
     controlPoints = controlPoints.reshape((numControlPoints, 2))
     knotPoints = create_unclamped_knot_points(0, tf, numControlPoints, splineOrder)
     out_d1 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
+        times, 1, controlPoints, knotPoints, splineOrder
     )
     out_d2 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
+        times, 2, controlPoints, knotPoints, splineOrder
     )
     v = jnp.linalg.norm(out_d1, axis=1)
     u = jnp.cross(out_d1, out_d2) / (v**2)
     return u
 
 
-@partial(jit, static_argnums=(2, 3))
-def get_spline_curvature(controlPoints, tf, splineOrder, numSamplesPerInterval):
+@partial(jit, static_argnums=(3,))
+def get_spline_curvature(times, controlPoints, tf, splineOrder):
     numControlPoints = int(len(controlPoints) / 2)
     controlPoints = controlPoints.reshape((numControlPoints, 2))
     knotPoints = create_unclamped_knot_points(0, tf, numControlPoints, splineOrder)
     out_d1 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
+        times, 1, controlPoints, knotPoints, splineOrder
     )
     out_d2 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
+        times, 2, controlPoints, knotPoints, splineOrder
     )
     v = jnp.linalg.norm(out_d1, axis=1)
     u = jnp.cross(out_d1, out_d2) / (v**2)
@@ -85,12 +88,12 @@ def get_spline_curvature(controlPoints, tf, splineOrder, numSamplesPerInterval):
 
 
 @partial(jit, static_argnums=(2, 3))
-def get_spline_heading(controlPoints, tf, splineOrder, numSamplesPerInterval):
+def get_spline_heading(times, controlPoints, tf, splineOrder):
     numControlPoints = int(len(controlPoints) / 2)
     controlPoints = controlPoints.reshape((numControlPoints, 2))
     knotPoints = create_unclamped_knot_points(0, tf, numControlPoints, splineOrder)
     out_d1 = evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
+        times, 1, controlPoints, knotPoints, splineOrder
     )
     return jnp.arctan2(out_d1[:, 1], out_d1[:, 0])
 
@@ -133,14 +136,12 @@ def get_end_constraint_jacobian(controlPoints):
     return jac
 
 
-def get_turn_rate_velocity_and_headings(
-    controlPoints, knotPoints, numSamplesPerInterval
-):
+def get_turn_rate_velocity_and_headings(times, controlPoints, knotPoints, splineOrder):
     out_d1 = evaluate_spline_derivative(
-        controlPoints, knotPoints, 3, 1, numSamplesPerInterval
+        times, 1, controlPoints, knotPoints, splineOrder
     )
     out_d2 = evaluate_spline_derivative(
-        controlPoints, knotPoints, 3, 2, numSamplesPerInterval
+        times, 2, controlPoints, knotPoints, splineOrder
     )
     v = np.linalg.norm(out_d1, axis=1)
     u = np.cross(out_d1, out_d2) / (v**2)
@@ -161,19 +162,26 @@ dCurvatureDtf = jacfwd(get_spline_curvature, argnums=1)
 
 def assure_velocity_constraint(
     controlPoints,
-    knotPoints,
-    num_control_points,
+    splineOrder,
+    t0,
+    tf,
+    numSamples,
     agentSpeed,
     velocityBounds,
     numSamplesPerInterval,
 ):
+    times = np.linspace(
+        t0,
+        tf,
+        numSamples,
+    )
     splineOrder = 3
     tf = np.linalg.norm(controlPoints[0] - controlPoints[-1]) / agentSpeed
-    v = get_spline_velocity(controlPoints, tf, splineOrder, numSamplesPerInterval)
+    v = get_spline_velocity(times, controlPoints, tf, splineOrder)
     while np.max(v) > velocityBounds[1]:
         tf += 0.01
         # combined_knot_points = self.create_unclamped_knot_points(0, tf, num_control_points,params.splineOrder)
-        v = get_spline_velocity(controlPoints, tf, splineOrder, numSamplesPerInterval)
+        v = get_spline_velocity(times, controlPoints, tf, splineOrder)
         # pd, u, v, pos = self.spline_constraints(radarList, controlPoints, combined_knot_points,params.numConstraintSamples)
     print("max v", np.max(v))
     return tf

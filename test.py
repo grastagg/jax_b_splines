@@ -4,7 +4,10 @@ import time
 
 from scipy.interpolate import BSpline
 
-from bspline.matrix_evaluation import matrix_bspline_evaluation_at_times
+from bspline.matrix_evaluation import (
+    matrix_bspline_evaluation_at_times,
+    matrix_bspline_derivative_evaluation_at_times,
+)
 
 import spline_opt_tools
 
@@ -36,21 +39,21 @@ def main():
     knotPoints = spline_opt_tools.create_unclamped_knot_points(
         t0, tf, numControlPoints, splineOrder
     )
-    numSamplesPerInterval = 10
+    numSamplesPerInterval = 100
 
     # one call to compile jit
     pos = spline_opt_tools.evaluate_spline(
         controlPoints, knotPoints, numSamplesPerInterval
     )
-    vel = spline_opt_tools.evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
-    )
-    startTime = time.time()
     pos = spline_opt_tools.evaluate_spline(
         controlPoints, knotPoints, numSamplesPerInterval
     )
     vel = spline_opt_tools.evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 1, numSamplesPerInterval
+        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
+    )
+    startTime = time.time()
+    vel = spline_opt_tools.evaluate_spline_derivative(
+        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
     )
     print("Time taken for evaluate_spline: ", time.time() - startTime)
 
@@ -59,22 +62,37 @@ def main():
     t = np.linspace(
         t0, tf, (numControlPoints - splineOrder) * numSamplesPerInterval + 1
     )
-    startTime = time.time()
     scipySplinePos = scipySpline(t)
-    scipySplineVel = scipySpline.derivative(1)(t)
+    startTime = time.time()
+    scipySplineVel = scipySpline.derivative(2)(t)
     print("Time taken for scipy spline: ", time.time() - startTime)
 
+    posNew = matrix_bspline_evaluation_at_times(
+        t, controlPoints, knotPoints, splineOrder
+    )
+    velNew = matrix_bspline_derivative_evaluation_at_times(
+        t, 2, controlPoints, knotPoints, splineOrder
+    )
+    posNew = matrix_bspline_evaluation_at_times(
+        t, controlPoints, knotPoints, splineOrder
+    )
+    startTime = time.time()
+    velNew = matrix_bspline_derivative_evaluation_at_times(
+        t, 2, controlPoints, knotPoints, splineOrder
+    )
+    print("Time taken for new evaluate_spline: ", time.time() - startTime)
     # p    # print(pos)
     #
-    print(np.isclose(pos, scipySplinePos).all())
-    print(np.isclose(vel, scipySplineVel, atol=1e-8).all())
+    print(np.isclose(vel, scipySplineVel).all())
+    print(np.isclose(velNew, scipySplineVel).all())
+    # print("velNew: ", velNew)
     # print(vel)
     # print(scipySplineVel)
     fig, ax = plt.subplots()
     plt.plot(pos[:, 0], pos[:, 1])
     plt.plot(scipySplinePos[:, 0], scipySplinePos[:, 1])
-    plt.plot(vel[:, 0], vel[:, 1], c="r")
-    plt.plot(scipySplineVel[:, 0], scipySplineVel[:, 1], c="g")
+    plt.plot(velNew[:, 0], velNew[:, 1], c="r")
+    # plt.plot(scipySplineVel[:, 0], scipySplineVel[:, 1], c="g")
     plt.show()
 
 
@@ -122,7 +140,8 @@ def new_test():
     print(scipyPos[-1])
 
     print(np.isclose(pos, scipyPos).all())
+    print(np.isclose(posNew, scipyPos).all())
 
 
 if __name__ == "__main__":
-    new_test()
+    main()
