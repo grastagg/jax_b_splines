@@ -39,29 +39,24 @@ def main():
     knotPoints = spline_opt_tools.create_unclamped_knot_points(
         t0, tf, numControlPoints, splineOrder
     )
-    numSamplesPerInterval = 100
+
+    numSamples = 1000
+    t = np.linspace(t0, tf, numSamples)
 
     # one call to compile jit
-    pos = spline_opt_tools.evaluate_spline(
-        controlPoints, knotPoints, numSamplesPerInterval
-    )
-    pos = spline_opt_tools.evaluate_spline(
-        controlPoints, knotPoints, numSamplesPerInterval
-    )
+    pos = spline_opt_tools.evaluate_spline(t, controlPoints, knotPoints, splineOrder)
+    pos = spline_opt_tools.evaluate_spline(t, controlPoints, knotPoints, splineOrder)
     vel = spline_opt_tools.evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
+        t, 2, controlPoints, knotPoints, splineOrder
     )
     startTime = time.time()
     vel = spline_opt_tools.evaluate_spline_derivative(
-        controlPoints, knotPoints, splineOrder, 2, numSamplesPerInterval
+        t, 2, controlPoints, knotPoints, splineOrder
     )
     print("Time taken for evaluate_spline: ", time.time() - startTime)
 
     scipySpline = BSpline(knotPoints, controlPoints, splineOrder)
     # test scipy spline
-    t = np.linspace(
-        t0, tf, (numControlPoints - splineOrder) * numSamplesPerInterval + 1
-    )
     scipySplinePos = scipySpline(t)
     startTime = time.time()
     scipySplineVel = scipySpline.derivative(2)(t)

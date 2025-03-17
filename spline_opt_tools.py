@@ -10,13 +10,15 @@ from bspline.matrix_evaluation import (
 )
 
 
+@partial(jit, static_argnums=(3,))
 def evaluate_spline(times, controlPoints, knotPoints, spline_order):
     knotPoints = knotPoints.reshape((-1,))
     return matrix_bspline_evaluation_at_times(
-        times, controlPoints.T, knotPoints, spline_order
+        times, controlPoints, knotPoints, spline_order
     )
 
 
+@partial(jit, static_argnums=(4,))
 def evaluate_spline_derivative(
     times,
     derivativeOrder,
@@ -24,8 +26,9 @@ def evaluate_spline_derivative(
     knotPoints,
     splineOrder,
 ):
+    knotPoints = knotPoints.reshape((-1,))
     return matrix_bspline_derivative_evaluation_at_times(
-        times, derivativeOrder, controlPoints.T, knotPoints, splineOrder
+        times, derivativeOrder, controlPoints, knotPoints, splineOrder
     )
 
 
